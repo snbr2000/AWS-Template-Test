@@ -1,0 +1,66 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/21
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: trulieve-data-vpc
+  DataSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.0.0.0/23
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: data-subnet-1a
+  DataSubnet2a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.0.2.0/23
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: data-subnet-2a
+  DataSubnet3a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.0.4.0/23
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: data-subnet-3a
+  DataSubnet1b:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.0.6.0/23
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: data-subnet-1b
+  DataSubnet2b:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.0.8.0/23
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: data-subnet-2b
+  DataSubnet3b:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.0.10.0/23
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: data-subnet-3b

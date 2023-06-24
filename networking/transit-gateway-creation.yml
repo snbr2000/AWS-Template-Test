@@ -1,0 +1,252 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  VpcName:
+    Description: "The name of your VPC."
+    Type: String
+    Default: "LzaVpc"
+  VpcCidr:
+    Description: "The CIDR Block of your VPC."
+    Type: String
+    Default: "10.100.0.0/22"
+  Subnet1Az:
+    Description: "The AZ of your first subnet."
+    Type: String
+    Default: "us-east-1a"
+  Subnet1Cidr:
+    Description: "The subnet CIDR Block of your first subnet."
+    Type: String
+    Default: "10.100.1.0/24"
+  Subnet2Az:
+    Description: "The AZ of your second subnet."
+    Type: String
+    Default: "us-east-1b"
+  Subnet2Cidr:
+    Description: "The subnet CIDR Block of your second subnet."
+    Type: String
+    Default: "10.100.2.0/24"
+
+Resources:
+#################
+# VPC Resources #
+#################
+  LzaVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref VpcName
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref Subnet1Az
+      CidrBlock: !Ref Subnet1Cidr
+      VpcId: !Ref LzaVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-${Subnet1Az}-subnet"
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref Subnet2Az
+      CidrBlock: !Ref Subnet2Cidr
+      VpcId: !Ref LzaVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-${Subnet2Az}-subnet"
+  Rtb1:
+    Type: AWS::EC2::RouteTable
+    DependsOn:
+      - Subnet1
+    Properties:
+      VpcId: !Ref LzaVpc
+      Tags: 
+        - Key: Name
+          Value: !Sub "${VpcName}-${Subnet1Az}-routetable"
+  Rtb2: 
+    Type: AWS::EC2::RouteTable
+    DependsOn:
+      - Subnet2
+    Properties:
+      VpcId: !Ref LzaVpc
+      Tags: 
+        - Key: Name
+          Value: !Sub "${VpcName}-${Subnet2Az}-routetable"
+  Rtb1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref Rtb1
+      SubnetId: !Ref Subnet1
+  Rtb2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref Rtb2
+      SubnetId: !Ref Subnet2
+
+#############################
+# Transit Gateway Resources #
+#############################
+
+  TransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Properties: 
+      AutoAcceptSharedAttachments: enable
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-transitgateway"
+  TransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      SubnetIds:
+        - !Ref Subnet1
+        - !Ref Subnet2
+      VpcId: !Ref LzaVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-tgwattach"
+      TransitGatewayId: !Ref TransitGateway
+  TransitGatewayRtb1:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-transitroutetable"
+  TransitGatewayRtb1Association:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    Properties:
+      TransitGatewayAttachmentId: !Ref TransitGatewayAttachment
+      TransitGatewayRouteTableId: !Ref TransitGatewayRtb1
+  TransitRoute1:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      DestinationCidrBlock: !Ref Subnet1Cidr
+      TransitGatewayAttachmentId: !Ref TransitGatewayAttachment
+      TransitGatewayRouteTableId: !Ref TransitGatewayRtb1
+  TransitRoute2:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      DestinationCidrBlock: !Ref Subnet2Cidr
+      TransitGatewayAttachmentId: !Ref TransitGatewayAttachment
+      TransitGatewayRouteTableId: !Ref TransitGatewayRtb1
+  Subnet1Route:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - TransitGatewayAttachment
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      RouteTableId: !Ref Rtb1
+      TransitGatewayId: !Ref TransitGateway
+  Subnet2Route:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - TransitGatewayAttachment
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      RouteTableId: !Ref Rtb2
+      TransitGatewayId: !Ref TransitGateway
+
+#################
+# VPC Endpoints #
+#################
+
+  Ec2VpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action: '*'
+            Effect: Allow
+            Resource: '*'
+            Principal: '*'
+      SubnetIds:
+        - !Ref Subnet1
+        - !Ref Subnet2
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ec2'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: false
+      VpcId: !Ref LzaVpc
+
+  S3VpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action: '*'
+            Effect: Allow
+            Resource: '*'
+            Principal: '*'
+      SubnetIds:
+        - !Ref Subnet1
+        - !Ref Subnet2
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: false
+      VpcId: !Ref LzaVpc
+
+#####################
+# Route53 Resources #
+#####################
+
+  S3HostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: s3lzatest.com
+      VPCs:
+        -
+          VPCId: !Ref LzaVpc
+          VPCRegion: !Ref "AWS::Region"
+      HostedZoneTags:
+        -
+          Key: 'Name'
+          Value: 's3 hosted zone'
+  S3RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Name: "*.s3lzatest.com"
+      HostedZoneId: !GetAtt S3HostedZone.Id
+      Type: CNAME
+      AliasTarget:
+        DNSName: 
+          !Select [
+            1,
+            !Split [":", !Select [0, !GetAtt S3VpcEndpoint.DnsEntries]],    
+          ]
+        HostedZoneId: 
+          !Select [
+            0,
+            !Split [":", !Select [0, !GetAtt S3VpcEndpoint.DnsEntries]],    
+          ]
+
+  Ec2HostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: ec2lzatest.com
+      VPCs:
+        -
+          VPCId: !Ref LzaVpc
+          VPCRegion: !Ref "AWS::Region"
+      HostedZoneTags:
+        -
+          Key: 'Name'
+          Value: 'ec2 hosted zone'
+  Ec2RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Name: "*.ec2lzatest.com"
+      HostedZoneId: !GetAtt Ec2HostedZone.Id
+      Type: CNAME
+      AliasTarget:
+        DNSName: 
+          !Select [
+            1,
+            !Split [":", !Select [0, !GetAtt Ec2VpcEndpoint.DnsEntries]],    
+          ]
+        HostedZoneId: 
+          !Select [
+            0,
+            !Split [":", !Select [0, !GetAtt Ec2VpcEndpoint.DnsEntries]],    
+          ]

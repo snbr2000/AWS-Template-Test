@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Create a VPC with default tenancy, two subnets, routes, route table, and an internet gateway.'
+
+Parameters:
+  VpcCidr:
+    Description: CIDR block for the VPC.
+    Type: String
+    Default: 10.11.0.0/21
+
+Resources:
+  TdpVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: Tdp-Redshift-Vpc
+  TdpInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Tdp-Redshift-Gateway
+  TdpInternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref TdpVpc
+      InternetGatewayId: !Ref TdpInternetGateway
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      VpcId: !Ref TdpVpc
+      CidrBlock: 10.11.1.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub redshift-subnet1-${AWS::Region}-${AWS::AvailabilityZone}
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      VpcId: !Ref TdpVpc
+      CidrBlock: 10.11.2.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub redshift-subnet2-${AWS::Region}-${AWS::AvailabilityZone}
+  Subnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [ 2, !GetAZs '' ]
+      VpcId: !Ref TdpVpc
+      CidrBlock: 10.11.3.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub redshift-subnet3-${AWS::Region}-${AWS::AvailabilityZone}
+  TdpRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TdpVpc
+      Tags:
+        - Key: Name
+          Value: !Sub redshift-rtb-${AWS::Region}
+  TdpRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref TdpRouteTable
+      GatewayId: !Ref TdpInternetGateway
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref TdpInternetGateway
+  RedshiftSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: TdpRedshiftSg
+      GroupDescription: Security group for Redshift cluster
+      VpcId: !Ref TdpVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5439
+          ToPort: 5439
+          CidrIp: 10.11.0.0/21
+      Tags:
+        - Key: Name
+          Value: TdpRedshiftSecurityGroup
+Outputs:
+  TdpVpcId:
+    Value: !Ref TdpVpc
+    Export: 
+      Name: TdpVpcId
+  RedshiftSecurityGroup:
+    Description: The ID of the domain SG.
+    Value: !Ref RedshiftSecurityGroup
+    Export:
+      Name: TdpRedshiftSg
+  PrivateSubnet1Id:
+    Value: !Ref Subnet1
+    Export:
+      Name: TdpSubnet1
+  PrivateSubnet2Id:
+    Value: !Ref Subnet2
+    Export:
+      Name: TdpSubnet2
+  PrivateSubnet3Id:
+    Value: !Ref Subnet3
+    Export:
+      Name: TdpSubnet3

@@ -1,0 +1,1 @@
+the slalom-vpc.yml creates a VPC with subnets selected to differentiate Slalom created items from other Trulieve organization items. It also creates internet gateways, subnets, routes, attachments, and security groups.

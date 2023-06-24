@@ -1,0 +1,29 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creates an AWS::GuardDuty::Detector resource and optionally an AWS::GuardDuty::Master resource in a set of accounts and regions.
+
+Parameters:
+  MasterId:
+    Type: String
+    Default: ''
+    Description: >
+      The Amazon GuardDuty master account ID. If you specify the master account ID, this stack set creates a GuardDuty detector in each specified account and accepts the GuardDuty membership invitation sent to each of the specified accounts by this master account. If this value is specified, before you can
+      create this stack set, all accounts in all regions to which this stack set template is to be applied must already have an invitation from this master GuardDuty account and must NOT have a detector already created.
+
+Conditions:
+  CreateMasterResource: !Not
+    - !Equals
+      - !Ref MasterId
+      - ''
+
+Resources:
+  Detector:
+    Type: AWS::GuardDuty::Detector
+    Properties:
+      Enable: True
+
+  Master:
+    Type: AWS::GuardDuty::Master
+    Condition: CreateMasterResource
+    Properties:
+      DetectorId: !Ref Detector
+      MasterId: !Ref MasterId

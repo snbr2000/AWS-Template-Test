@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Create a Redshift Cluster, s3 bucket, and folder.'
+
+Parameters:
+  Env:
+    Description: "The environment name. There are 3 environment options, those being: 'Dev,' 'Prod,' or 'Staging.'"
+    Type: String
+    Default: Dev
+
+Resources:
+  RedshiftS3LoggingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: tdpredshiftlogs
+      AccessControl: BucketOwnerFullControl
+      Tags:
+        - Key: Name
+          Value: tdpredshiftlogs
+  RedshiftSubnetGroup:
+    Type: AWS::Redshift::ClusterSubnetGroup
+    Properties:
+      Description: Subnet group for Redshift cluster
+      SubnetIds:
+        - !ImportValue TdpSubnet1
+        - !ImportValue TdpSubnet2
+      Tags:
+        - Key: Name
+          Value: TdpRedshiftSubnetGroup
+  RedshiftServerlessNamespace:
+    Type: AWS::RedshiftServerless::Namespace
+    Properties:
+      DbName: TdpDb
+      NamespaceName: !Sub redshift-serverless-${Env}-${AWS::Region}
+  RedshiftServerlessWorkgroup:
+    DependsOn: RedshiftServerlessNamespace
+    Type: AWS::RedshiftServerless::Workgroup
+    Properties:
+      NamespaceName: rs-trulieve
+      SecurityGroupIds:
+        - !ImportValue TdpRedshiftSg
+      SubnetIds:
+        - !ImportValue TdpSubnet1
+        - !ImportValue TdpSubnet2
+        - !ImportValue TdpSubnet3
+      WorkgroupName: !Sub redshift-serverless-${Env}-${AWS::Region}

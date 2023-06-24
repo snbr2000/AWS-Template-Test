@@ -1,0 +1,424 @@
+WSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation template for remediating security findings.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Recorder Configuration
+        Parameters:
+          - AllSupported
+          - IncludeGlobalResourceTypes
+          - ResourceTypes
+      - Label:
+          default: Delivery Channel Configuration
+        Parameters:
+          - DeliveryChannelName
+          - S3BucketName
+          - S3KeyPrefix
+          - Frequency
+      - Label:
+          default: Delivery Notifications
+        Parameters:
+          - SNS
+          - TopicArn
+          - NotificationEmail
+    ParameterLabels:
+      AllSupported:
+        default: Support all resource types
+      IncludeGlobalResourceTypes:
+        default: Include global resource types
+      ResourceTypes:
+        default: List of resource types if not all supported
+      DeliveryChannelName:
+        default: Configuration delivery channel name
+      S3BucketName:
+        default: Central S3 bucket
+      S3KeyPrefix:
+        default: Prefix for the specified Amazon S3 bucket
+      Frequency:
+        default: Snapshot delivery frequency
+      SNS:
+        default: SNS notifications
+      TopicArn:
+        default: SNS topic name
+      NotificationEmail:
+        default: Notification Email (optional)
+
+Parameters:
+  AllSupported:
+    Type: String
+    Default: True
+    Description: Indicates whether to record all supported resource types.
+    AllowedValues:
+      - True
+      - False
+  IncludeGlobalResourceTypes:
+    Type: String
+    Default: False
+    Description: Indicates whether AWS Config records all supported global resource types.
+    AllowedValues:
+      - True
+      - False
+  ResourceTypes:
+    Type: List<String>
+    Description: A list of valid AWS resource types to include in this recording group, such as AWS::EC2::Instance or AWS::CloudTrail::Trail.
+    Default: <All>
+  DeliveryChannelName:
+    Type: String
+    Default: <Generated>
+    Description: The name of the delivery channel.
+  S3BucketName:
+    Type: String
+    Description: Central S3 bucket where AWS Config delivers configuration snapshots and history.
+    Default: <New Bucket>
+    AllowedPattern: ".+"
+  S3KeyPrefix:
+    Type: String
+    Description: The prefix for the Amazon S3 bucket (optional).
+    Default: <No Prefix>
+  Frequency:
+    Type: String
+    Default: 24hours
+    Description: The frequency with which AWS Config delivers configuration snapshots.
+    AllowedValues:
+      - Disabled
+      - 1hour
+      - 3hours
+      - 6hours
+      - 12hours
+      - 24hours
+  SNS:
+    Type: String
+    Default: True
+    Description: Describes wether AWS Config sends SNS notifications.
+    AllowedValues:
+      - True
+      - False
+  TopicArn:
+    Type: String
+    Default: <New Topic>
+    Description: The Amazon Resource Name (ARN) of the Amazon Simple Notification Service (Amazon SNS) topic that AWS Config delivers notifications to. Topic ARN must belong to the same Region where you will be deploying the Stack.
+  NotificationEmail:
+    Type: String
+    Default: <None>
+    Description: Email address for AWS Config notifications (for new topics).
+  MasterId:
+    Type: String
+    Default: ''
+    Description: >
+      The Amazon GuardDuty master account ID. If you specify the master account ID, this stack set creates a GuardDuty detector in each specified account and accepts the GuardDuty membership invitation sent to each of the specified accounts by this master account. If this value is specified, before you can
+      create this stack set, all accounts in all regions to which this stack set template is to be applied must already have an invitation from this master GuardDuty account and must NOT have a detector already created.
+Conditions:
+  CreateMasterResource: !Not
+    - !Equals
+      - !Ref MasterId
+      - ''
+  IsAllSupported: !Equals
+    - !Ref AllSupported
+    - True
+  IsGeneratedDeliveryChannelName: !Equals
+    - !Ref DeliveryChannelName
+    - <Generated>
+  CreateBucket: !Equals
+    - !Ref S3BucketName
+    - <New Bucket>
+  UsePrefix: !Not
+    - !Equals
+      - !Ref S3KeyPrefix
+      - <No Prefix>
+  DisableSnapshots: !Equals
+    - !Ref Frequency
+    - Disabled
+  UseSNS: !Equals
+    - !Ref SNS
+    - True
+  CreateTopic: !And
+    - !Equals
+      - !Ref TopicArn
+      - <New Topic>
+    - !Condition UseSNS
+  CreateSubscription: !And
+    - !Condition CreateTopic
+    - !Not
+      - !Equals
+        - !Ref NotificationEmail
+        - <None>
+
+Mappings:
+  Settings:
+    FrequencyMap:
+      Disabled : TwentyFour_Hours
+      1hour    : One_Hour
+      3hours   : Three_Hours
+      6hours   : Six_Hours
+      12hours  : Twelve_Hours
+      24hours  : TwentyFour_Hours
+
+Resources:
+  # CIS v1.2.0 Rule 1.10: IAM password policy prevents password reuse
+  # CIS v1.2.0 Rule 1.11: IAM password policy expires passwords within 90 days or less
+  # CIS v1.2.0 Rule 1.5: Ensure IAM password policy requires at least one uppercase letter
+  # CIS v1.2.0 Rule 1.6: Ensure IAM password policy requires at least one lowercase letter
+  # CIS v1.2.0 Rule 1.7: Ensure IAM password policy requires at least one symbol
+  # CIS v1.2.0 Rule 1.8: Ensure IAM password policy requires at least one number
+  # CIS v1.2.0 Rule 1.9: Ensure IAM password policy requires minimum password length of 14 or greater
+  IAMPasswordPolicy:
+    Type: AWS::IAM::PasswordPolicy
+    Properties:
+      MinimumPasswordLength: 14
+      RequireLowercaseCharacters: true
+      RequireUppercaseCharacters: true
+      RequireNumbers: true
+      RequireSymbols: true
+      MaxPasswordAge: 90
+      PasswordReusePrevention: 1
+
+  # CIS v1.2.0 Rule 1.17 & 1.20: Support role created to manage incidents with AWS Support
+  IAMSupportRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SupportRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSSupportAccess
+  
+  # CIS v1.2.0 Rule 1.2: MFA enabled for IAM users with console passwords
+  IAMUserMFAPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyName: IAMUserMFAPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Deny
+            Action: iam:DeleteVirtualMFADevice
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - iam:EnableMFADevice
+              - iam:ResyncMFADevice
+            Resource: "*"
+      Roles:
+        - Ref: IAMSupportRole
+
+# CIS v1.2.0 rule 1.3: Ensure credentials unused for 90 days or greater are disabled:
+  ConfigRule:
+    DependsOn:
+         - "ConfigRecorder"
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      ConfigRuleName: "iam-user-unused-credentials-check"
+      Scope:
+        ComplianceResourceTypes: []
+      Description: "A config rule that checks whether your AWS Identity and Access Management (IAM) users have passwords or active access keys that have not been used within the specified number of days you provided. Re-evaluating this rule within 4 hours of the first eva..."
+      InputParameters:
+        maxCredentialUsageAge: "90"
+      Source:
+        Owner: "AWS"
+        SourceIdentifier: "IAM_USER_UNUSED_CREDENTIALS_CHECK"
+      MaximumExecutionFrequency: "TwentyFour_Hours"
+
+  # CIS v1.2.0 Rule 2.5: Ensure AWS Config is enabled
+  ConfigBucket:
+    Condition: CreateBucket
+    DeletionPolicy: Retain
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+  ConfigBucketPolicy:
+    Condition: CreateBucket
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ConfigBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AWSConfigBucketPermissionsCheck
+            Effect: Allow
+            Principal:
+              Service:
+                - config.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::${ConfigBucket}"
+          - Sid: AWSConfigBucketExistenceCheck
+            Effect: Allow
+            Principal:
+              Service:
+                - config.amazonaws.com
+            Action: s3:ListBucket
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::${ConfigBucket}"
+          - Sid: AWSConfigBucketDelivery
+            Effect: Allow
+            Principal:
+              Service:
+                - config.amazonaws.com
+            Action: s3:PutObject
+            Resource: !If
+              - UsePrefix
+              - !Sub "arn:${AWS::Partition}:s3:::${ConfigBucket}/${S3KeyPrefix}/AWSLogs/${AWS::AccountId}/*"
+              - !Sub "arn:${AWS::Partition}:s3:::${ConfigBucket}/AWSLogs/${AWS::AccountId}/*"
+            Condition:
+              StringLike:
+                's3:x-amz-acl': 'bucket-owner-full-control'
+  ConfigTopic:
+    Condition: CreateTopic
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "config-topic-${AWS::AccountId}"
+      DisplayName: AWS Config Notification Topic
+      KmsMasterKeyId: "alias/aws/sns"
+  ConfigTopicPolicy:
+    Condition: CreateTopic
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref ConfigTopic
+      PolicyDocument:
+        Statement:
+          - Sid: AWSConfigSNSPolicy
+            Action:
+              - sns:Publish
+            Effect: Allow
+            Resource: !Ref ConfigTopic
+            Principal:
+              Service:
+                - config.amazonaws.com
+  EmailNotification:
+    Condition: CreateSubscription
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !Ref NotificationEmail
+      Protocol: email
+      TopicArn: !Ref ConfigTopic
+  ConfigRole:
+    Type: AWS::IAM::ServiceLinkedRole
+    Properties:
+      AWSServiceName: config.amazonaws.com
+  ConfigRecorder:
+    Type: AWS::Config::ConfigurationRecorder
+    Properties:
+      RecordingGroup:
+        AllSupported: !Ref AllSupported
+        IncludeGlobalResourceTypes: !Ref IncludeGlobalResourceTypes
+        ResourceTypes: !If
+          - IsAllSupported
+          - !Ref AWS::NoValue
+          - !Ref ResourceTypes
+      RoleARN:
+        Fn::Sub:
+          "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig"
+
+  ConfigDeliveryChannel:
+    Type: AWS::Config::DeliveryChannel
+    Properties:
+      Name: !If
+        - IsGeneratedDeliveryChannelName
+        - !Ref AWS::NoValue
+        - !Ref DeliveryChannelName
+      ConfigSnapshotDeliveryProperties: !If
+        - DisableSnapshots
+        - !Ref AWS::NoValue
+        - DeliveryFrequency: !FindInMap
+            - Settings
+            - FrequencyMap
+            - !Ref Frequency
+      S3BucketName: !If
+        - CreateBucket
+        - !Ref ConfigBucket
+        - !Ref S3BucketName
+      S3KeyPrefix: !If
+        - UsePrefix
+        - !Ref S3KeyPrefix
+        - !Ref AWS::NoValue
+      SnsTopicARN: !If
+        - UseSNS
+        - !If
+          - CreateTopic
+          - !Ref ConfigTopic
+          - !Ref TopicArn
+        - !Ref AWS::NoValue
+  # AWS Foundational Security Best Practices v1.0.0 Rule GuardDuty.1: GuardDuty should be enabled  
+  Detector:
+    Type: AWS::GuardDuty::Detector
+    Properties:
+      Enable: True
+  Master:
+    Type: AWS::GuardDuty::Master
+    Condition: CreateMasterResource
+    Properties:
+      DetectorId: !Ref Detector
+      MasterId: !Ref MasterId
+
+#   EnableLifecyclePoliciesLambdaFunction:
+#     Type: AWS::Lambda::Function
+#     Properties:
+#       FunctionName: EnableLifecyclePoliciesLambda
+#       Handler: index.handler
+#       Runtime: python3.8
+#       Timeout: 300
+#       Role: !GetAtt EnableLifecyclePoliciesLambdaExecutionRole.Arn
+#       Code:
+#         ZipFile: |
+#           import boto3
+#           def handler(event, context):
+#               s3 = boto3.client('s3')
+#               buckets = s3.list_buckets()
+#               for bucket in buckets['Buckets']:
+#                   bucket_name = bucket['Name']
+#                   s3.put_bucket_lifecycle_configuration(
+#                       Bucket=bucket_name,
+#                       LifecycleConfiguration={
+#                           'Rules': [
+#                               {
+#                                   'ID': 'EnableLifecyclePolicy',
+#                                   'Prefix': '',
+#                                   'Status': 'Enabled',
+#                                   'Transitions': [
+#                                       {
+#                                           'Days': 30,
+#                                           'StorageClass': 'GLACIER'
+#                                       }
+#                                   ]
+#                               }
+#                           ]
+#                       }
+#                   )
+#       Environment:
+#         Variables:
+#           PARAMETER_STORE: ''
+#   EnableLifecyclePoliciesLambdaExecutionRole:
+#     Type: AWS::IAM::Role
+#     Properties:
+#       RoleName: EnableLifecyclePoliciesLambdaExecutionRole
+#       AssumeRolePolicyDocument:
+#         Version: '2012-10-17'
+#         Statement:
+#           - Effect: Allow
+#             Principal:
+#               Service: lambda.amazonaws.com
+#             Action: sts:AssumeRole
+#       ManagedPolicyArns:
+#         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+#   InvokeEnableLifecyclePoliciesLambdaPermission:
+#     Type: AWS::Lambda::Permission
+#     Properties:
+#       FunctionName: !GetAtt EnableLifecyclePoliciesLambdaFunction.Arn
+#       Action: lambda:InvokeFunction
+#       Principal: s3.amazonaws.com
+#       SourceAccount: !Ref AWS::AccountId
+# Outputs:
+#   EnableLifecyclePoliciesLambdaFunctionArn:
+#     Value: !GetAtt EnableLifecyclePoliciesLambdaFunction.Arn

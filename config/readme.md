@@ -1,0 +1,1 @@
+each file in this repo is related to AWS Config. These templates were parsed and included in a master template for the Security Hub MVP.

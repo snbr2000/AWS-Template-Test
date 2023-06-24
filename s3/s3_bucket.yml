@@ -1,0 +1,26 @@
+Description: CloudFormation template for standard S3 bucket
+
+Parameters:
+  S3BucketName: 
+    Description: S3 bucket name
+    Type: String
+
+Resources:
+  S3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Ref S3BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      
+Outputs:
+  S3BucketArn:
+    Description: The Arn of the bucket
+    Value: !GetAtt S3Bucket.Arn
+  
+      
